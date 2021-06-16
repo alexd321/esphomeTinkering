@@ -1,35 +1,3 @@
-wifi:
-  ssid: "MY SSID"
-  password: !secret wifi_password
-  fast_connect: on
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
-  ap:
-    ssid: "Bedroom Window Blind1"
-    password: "RANDOM PASSWORD"
-
-captive_portal:
-
-# Enable logging
-logger:
- # level: VERBOSE
-
-# Enable Home Assistant API
-api:
-  password: !secret api_password
-  services:
-    - service: control_stepper
-      variables:
-        target: int
-      then:
-        - stepper.set_target:
-            id: blind1_stepper
-            target: !lambda 'return target;'
-
-ota:
-  password: secret! ota_password
-
-
-
 substitutions:
   cycle_steps: "1000" # number of steps to fully cycle open
 
@@ -71,6 +39,37 @@ esphome:
                 id: bedroom_window_blind1
                 position: !lambda 'return (float(id(blind1_stepper).current_position)) / float($cycle_steps);' 
                 current_operation: IDLE
+
+
+wifi:
+  ssid: "MY SSID"
+  password: !secret wifi_password
+  fast_connect: on
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Bedroom Window Blind1"
+    password: "RANDOM PASSWORD"
+
+captive_portal:
+
+# Enable logging
+logger:
+ # level: VERBOSE
+
+# Enable Home Assistant API
+api:
+  password: !secret api_password
+  services:
+    - service: control_stepper
+      variables:
+        target: int
+      then:
+        - stepper.set_target:
+            id: blind1_stepper
+            target: !lambda 'return target;'
+
+ota:
+  password: secret! ota_password
 
 
 globals:
