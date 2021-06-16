@@ -1,0 +1,292 @@
+wifi:
+  ssid: "MY SSID"
+  password: !secret wifi_password
+  fast_connect: on
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Bedroom Window Blind1"
+    password: "RANDOM PASSWORD"
+
+captive_portal:
+
+# Enable logging
+logger:
+ # level: VERBOSE
+
+# Enable Home Assistant API
+api:
+  password: !secret api_password
+  services:
+    - service: control_stepper
+      variables:
+        target: int
+      then:
+        - stepper.set_target:
+            id: blind1_stepper
+            target: !lambda 'return target;'
+
+ota:
+  password: secret! ota_password
+
+
+
+substitutions:
+  cycle_steps: "1000" # number of steps to fully cycle open
+
+esphome:
+  name: bedroom_window_blind1
+  platform: ESP8266
+  board: d1_mini #nodemcuv2
+  esp8266_restore_from_flash: false
+  on_boot:
+    - priority: -200.0
+      then:
+      - stepper.report_position: # Set stepper to global variable
+          id: blind1_stepper
+          position: !lambda return id(blind1_stepper_global);
+      - stepper.set_target: # Set stepper to global variable
+          id: blind1_stepper
+          target: !lambda return id(blind1_stepper_global);
+      - if: # If blind is Closed
+          condition:
+            - lambda: 'return id(blind1_stepper_global) == 0;'
+          then: # Publish state etc.
+            - cover.template.publish:
+                id: bedroom_window_blind1
+                state: CLOSED
+                current_operation: IDLE
+      - if: # If blind is Open
+          condition:
+            - lambda: 'return id(blind1_stepper_global) == $cycle_steps;'
+          then: # Publish state etc.
+            - cover.template.publish:
+                id: bedroom_window_blind1
+                state: OPEN
+                current_operation: IDLE
+      - if: # If blind is Neither
+          condition:
+            - lambda: 'return (id(blind1_stepper_global) != 0) && (id(blind1_stepper_global)) != $cycle_steps;'
+          then: #  # Publish state etc.
+            - cover.template.publish:
+                id: bedroom_window_blind1
+                position: !lambda 'return (float(id(blind1_stepper).current_position)) / float($cycle_steps);' 
+                current_operation: IDLE
+
+
+globals:
+  - id: blind1_stepper_global # Integer for storing the stepper position in case of reboot
+    type: int
+    restore_value: True
+    initial_value: '0'
+
+  - id: openclosed # Boolean to store OPEN/CLOSED state
+    type: bool
+    restore_value: True
+    initial_value: '0'
+
+stepper:
+  - platform: uln2003
+    id: blind1_stepper
+    pin_a: D2
+    pin_b: D3
+    pin_c: D0
+    pin_d: D5
+    max_speed: 300 steps/s #120
+    sleep_when_done: true
+    step_mode: FULL_STEP
+
+    # Optional:
+    acceleration: 80
+    deceleration: inf
+    
+status_led:
+  pin: 
+    number: GPIO2 #(D4)
+    inverted: true
+    
+cover:
+  - platform: template
+    device_class: blind
+    name: Bedroom Window Blind 1
+    id: bedroom_window_blind1
+    
+    open_action:
+      then:
+        - logger.log: "Opening fully"
+        - stepper.set_target:
+            id: blind1_stepper
+            target: $cycle_steps
+        - while:
+            condition:
+              lambda: 'return id(blind1_stepper).current_position != $cycle_steps;'
+            then:
+              - cover.template.publish:
+                  id: bedroom_window_blind1
+                  position: !lambda 'return (float(float(id(blind1_stepper).current_position) / float($cycle_steps)));' 
+                  current_operation: OPENING
+              - delay: 1000 ms
+        - globals.set: # Set global to current position
+            id: blind1_stepper_global
+            value: !lambda return id(blind1_stepper).current_position; 
+        - logger.log:
+            format: "setting global to %i"
+            args: [ 'id(blind1_stepper).current_position' ]
+            
+        - globals.set: # Set toggle to OPEN (No need for 'optimistic mode')
+            id: openclosed
+            value: '1'
+        
+        - cover.template.publish:
+            id: bedroom_window_blind1
+            state: OPEN 
+            current_operation: IDLE
+        
+    close_action:
+      then:
+        - logger.log: "Closing fully"
+        - stepper.set_target:
+            id: blind1_stepper
+            target: 0
+            
+        - while:
+            condition:
+              lambda: 'return id(blind1_stepper).current_position != 0;'
+            then:
+              - cover.template.publish:
+                  id: bedroom_window_blind1
+                  position: !lambda 'return (float(float(id(blind1_stepper).current_position) / float($cycle_steps)));' 
+                  current_operation: CLOSING
+              - delay: 1s
+        - globals.set: # Set global to current position
+            id: blind1_stepper_global
+            value: !lambda return id(blind1_stepper).current_position; 
+            
+        - globals.set: # Set toggle to CLOSED (No need for 'optimistic mode')
+            id: openclosed
+            value: '0'
+        
+        - logger.log:
+            format: "setting global to %i"
+            args: [ 'id(blind1_stepper).current_position' ]
+            
+            
+        - cover.template.publish:
+            id: bedroom_window_blind1
+            state: CLOSED
+            current_operation: IDLE
+            
+            
+    stop_action:
+      then:
+        - stepper.set_target:
+            id: blind1_stepper
+            target: !lambda return id(blind1_stepper).current_position; 
+        - globals.set: # Set global to current position
+            id: blind1_stepper_global
+            value: !lambda return id(blind1_stepper).current_position;
+        - cover.template.publish:
+            id: bedroom_window_blind1
+            position: !lambda 'return (float(float(id(blind1_stepper).current_position) / float($cycle_steps)));' 
+            current_operation: IDLE  
+          
+    position_action:
+      then:
+        - logger.log:
+            format: "Moving to position: %.1f"
+            args: [ 'pos' ]
+        - stepper.set_target:
+            id: blind1_stepper
+            target: !lambda return int($cycle_steps) * pos;
+        - while:
+            condition:
+              lambda: 'return id(blind1_stepper).current_position != int($cycle_steps * pos);'
+            then:
+              - cover.template.publish:
+                  id: bedroom_window_blind1
+                  position: !lambda 'return (float(float(id(blind1_stepper).current_position) / float($cycle_steps)));' 
+              - delay: 1000 ms
+        
+        - cover.template.publish:
+            id: bedroom_window_blind1
+            position: !lambda 'return (float(float(id(blind1_stepper).current_position) / float($cycle_steps)));' 
+            current_operation: IDLE
+        - if: # if global not already set
+            condition:
+              - lambda: 'return (id(blind1_stepper_global) != id(blind1_stepper).current_position);'
+            then:
+              - globals.set: # Set global to current position
+                  id: blind1_stepper_global
+                  value: !lambda return id(blind1_stepper).current_position; 
+              - logger.log:
+                  format: "setting global to %i"
+                  args: [ 'id(blind1_stepper).current_position' ]
+   
+    
+    has_position: true
+    #optimistic: true
+    restore_mode: RESTORE
+    #tilt_action:
+    #  - stepper.set_target:
+    #      id: blind1_stepper
+    #      target: 500
+    #  - lambda: |-
+    #        if (tilt == 1) {
+    #          auto call1 = id(time_cover).make_call();
+    #          call1.set_command_open();
+    #          call1.perform();
+    #          delay(1000);
+    #          auto call2 = id(time_cover).make_call();
+    #          call2.set_command_stop();
+    #          call2.perform();
+    #          
+    #        } else if (tilt == 0) {
+    #          auto call1 = id(time_cover).make_call();
+    #          call1.set_command_close();
+    #          call1.perform();
+    #          delay(1000);
+    #          auto call2 = id(time_cover).make_call();
+    #          call2.set_command_stop();
+    #          call2.perform();
+    #          
+    #        } else {
+    #          if (tilt > 0.5) {
+     #           auto call1 = id(time_cover).make_call();
+     #           call1.set_command_open();
+     ##           call1.perform();
+    #            delay(1000);
+    #            auto call2 = id(time_cover).make_call();
+    #            call2.set_command_stop();
+    #            call2.perform();
+     #           delay(500);
+     ##           auto call3 = id(time_cover).make_call();
+    #            call3.set_command_close();
+    #            call3.perform();
+    #            delay(1000 - (tilt*1000) + 50);
+    #            auto call4 = id(time_cover).make_call();
+     #           call4.set_command_stop();
+    #            call4.perform();
+    #            
+    #          }
+    #          if (tilt <= 0.5) {
+    #            auto call1 = id(time_cover).make_call();
+    #            call1.set_command_close();
+    #            call1.perform();
+    #            delay(1000);
+    #            auto call2 = id(time_cover).make_call();
+    #            call2.set_command_stop();
+    #            call2.perform();
+    #            delay(500);
+    #            auto call3 = id(time_cover).make_call();
+    #            call3.set_command_open();
+    #            call3.perform();
+    #            delay(tilt*1000 + 200);
+    #            auto call4 = id(time_cover).make_call();
+    #            call4.set_command_stop();
+    #            call4.perform();
+    #            
+    #          }
+    #        }
+    #        
+            
+    #        id(template_cover).tilt = tilt;
+    #        id(template_cover).publish_state();
