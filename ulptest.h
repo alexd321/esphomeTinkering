@@ -3,6 +3,7 @@
  * Arduino using the ulp assembly MACRO's. This sketch just blinks the
  * on board LED on for x microseconds and OFF x microseconds using the ulp. 
  * This sketch was inspired from https://github.com/espressif/esp-idf/blob/98e5c475b31ce704e08bd1a48f5d2de3f0b216b0/components/ulp/test/test_ulp.c 
+ * and https://www.esp32.com/viewtopic.php?t=4899#p21215
  */
 #include "esp32/ulp.h"
 #include "driver/rtc_io.h"
